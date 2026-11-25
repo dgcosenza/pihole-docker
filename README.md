@@ -282,4 +282,4 @@ build and is not endorsed by the Pi-hole project.
 * [pi-hole/FTL](https://github.com/pi-hole/FTL) — DNS engine and embedded web server
 * [pi-hole/docker-pi-hole](https://github.com/pi-hole/docker-pi-hole) — container entrypoint and conventions this image follows
 * [pi-hole/PADD](https://github.com/pi-hole/PADD) — terminal dashboard
-* Packaging and CI: [dgcosenza](https://github.com/dgcosenza)
+* Container packaging, CI, and documentation: maintained by Daniel G. Cosenza from FNX Labs ([dgcosenza](https://github.com/dgcosenza))

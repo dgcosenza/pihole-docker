@@ -42,7 +42,7 @@ FROM ${DEBIAN_BASE} AS assets
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-ARG TARGETARCH=amd64
+ARG TARGETARCH
 ARG PIHOLE_DOCKER_VERSION
 ARG PIHOLE_CORE_VERSION
 ARG PIHOLE_WEB_VERSION
@@ -76,7 +76,7 @@ RUN set -eux; \
     install -m 0755 /scripts/start.sh /rootfs/usr/bin/start.sh; \
     install -m 0644 /scripts/crontab.txt /rootfs/crontab.txt; \
     printf '%s\n' "${PIHOLE_DOCKER_VERSION}" > /rootfs/pihole.docker.tag; \
-    case "${TARGETARCH}" in \
+    case "${TARGETARCH:-amd64}" in \
         amd64) ftl_bin="pihole-FTL-amd64"; ftl_sha256="${FTL_SHA256_AMD64}" ;; \
         arm64) ftl_bin="pihole-FTL-arm64"; ftl_sha256="${FTL_SHA256_ARM64}" ;; \
         *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \

@@ -6,7 +6,7 @@
 # The official pi-hole/pihole image is Alpine-based. This image rebuilds the
 # exact same upstream components (Core, Web, FTL and the docker-pi-hole
 # entrypoint) on Debian 13 so that it shares the distro, libc and security
-# patch stream of the other images in this collection. The only behavioural patch applied to
+# patch stream used by the other services on the same host. The only behavioural patch applied to
 # the upstream entrypoint is the package manager and the cron daemon call
 # (see patches/0001-debian-gnu-userland.patch).
 #

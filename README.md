@@ -239,9 +239,9 @@ and a new Pi-hole release is picked up automatically.
 
 * **Debian 13 instead of Alpine.** The official image is Alpine-based, which is
   the upstream-documented base for that image. This build deliberately chooses
-  the distro used by the other images in this collection so that base packages, CVE feeds and
-  upgrade tooling are uniform, and so the image can share one process/security
-  model with the other services on the same host. The compatibility cost is the
+  the distro used by the other services on the same host so that base packages,
+  CVE feeds and upgrade tooling are uniform, and so the image can share one
+  process/security model with the other services on the same host. The compatibility cost is the
   package-manager and cron differences documented above; the entrypoint itself
   is upstream code with a two-hunk patch
   ([`patches/0001-debian-gnu-userland.patch`](patches/0001-debian-gnu-userland.patch)).

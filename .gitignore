@@ -9,3 +9,6 @@ sbom.spdx.json
 etc-pihole/
 etc-dnsmasq.d/
 var-log-pihole/
+
+__pycache__/
+*.pyc

@@ -3,12 +3,13 @@
 #
 # Runs the image on a private port range, proves that DNS, the web interface,
 # the healthcheck and the non-root service account work, and that the
-# healthcheck fails closed. CI runs the same checks (.github/workflows/daily.yml).
+# healthcheck fails closed. CI runs this exact script.
 #
-# Usage: IMAGE=dgcosenza/pihole:latest tests/smoke.sh
+# Usage: tests/smoke.sh [image]
+#        IMAGE=dgcosenza/pihole:latest tests/smoke.sh
 set -euo pipefail
 
-IMAGE="${IMAGE:-dgcosenza/pihole:latest}"
+IMAGE="${1:-${IMAGE:-dgcosenza/pihole:latest}}"
 NAME="${NAME:-pihole-smoke}"
 DNS_PORT="${DNS_PORT:-15353}"
 WEB_PORT="${WEB_PORT:-18080}"
@@ -16,6 +17,7 @@ DATA="$(mktemp -d)"
 
 cleanup() {
   docker rm -f "$NAME" >/dev/null 2>&1 || true
+  docker run --rm -v "$DATA:/x" --entrypoint chmod "$IMAGE" -R 777 /x >/dev/null 2>&1 || true
   rm -rf "$DATA"
 }
 trap cleanup EXIT
@@ -34,7 +36,7 @@ docker run -d --name "$NAME" \
   "$IMAGE"
 
 echo "== waiting for healthcheck"
-for i in $(seq 1 60); do
+for _ in $(seq 1 60); do
   status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$NAME")"
   [ "$status" = "healthy" ] && break
   [ "$status" = "unhealthy" ] && { docker logs "$NAME"; exit 1; }
@@ -59,10 +61,10 @@ test "$code" = "200" -o "$code" = "302"
 echo "== component versions"
 docker exec "$NAME" pihole -v
 
-echo "== negative test: healthcheck must fail when FTL is gone"
+echo "== negative test: healthcheck must fail when FTL is stopped"
 docker exec "$NAME" sh -c 'killall --signal 9 pihole-FTL || true'
 sleep 3
-if docker exec "$NAME" sh -c 'dig -p $(pihole-FTL --config dns.port) +short +norecurse +retry=0 @127.0.0.1 pi.hole'; then
+if docker exec "$NAME" sh -c 'dig -p $(pihole-FTL --config dns.port) +short +norecurse +retry=0 @127.0.0.1 pi.hole' 2>/dev/null; then
   echo "ERROR: DNS still answered after FTL was killed" >&2
   exit 1
 fi

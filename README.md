@@ -18,6 +18,23 @@ Alpine/musl base used by the official image.
 Every image is rebuilt daily, smoke-tested, scanned with Trivy and Grype, and
 published only when the build and the scans pass.
 
+## Current versions
+
+<!-- versions:start -->
+
+| Component | Resolved version |
+|---|---|
+| Base OS | Debian `13` (`debian:trixie-slim`) |
+| `docker-pi-hole` | `2026.11.0` |
+| `pi-hole-core` | `v6.6` |
+| `pi-hole-web` | `v6.6.1` |
+| `pi-hole-ftl` | `v6.9` |
+| `padd` | `3600b2e03999` |
+| Last verified build | `2026-11-24` |
+| Fixable CRITICAL / HIGH CVEs | `0` (Trivy + Grype gate) |
+
+<!-- versions:end -->
+
 ## Supported tags
 
 | Tag | Meaning |
@@ -221,19 +238,38 @@ SHA-1; compute the SHA-256 once and pin it).
 
 ## Update policy
 
-A GitHub Actions workflow runs **daily** (and on every push to `main`, on pull
-requests, and on demand):
+A GitHub Actions workflow (`.github/workflows/daily.yml`) runs **daily** (and on
+every push to `main`, on pull requests, and on demand via `workflow_dispatch`),
+gated first by `.github/workflows/public-check.yml`:
 
-1. resolves the latest `pi-hole/docker-pi-hole`, Core, Web and FTL releases via
-   the authenticated GitHub API (never unauthenticated);
-2. builds the image with those versions (`no-cache` on scheduled runs);
-3. runs the smoke test above;
-4. runs Trivy (blocking gate) and Grype, uploads reports and an SBOM;
-5. publishes `latest`, `<version>`, `<version>-<YYYYMMDD>` and `sha-<short>` —
-   only for non-PR events and only when Docker Hub credentials are configured.
+1. **Upstream check:** resolves the latest `pi-hole/docker-pi-hole`, Core, Web,
+   FTL, PADD, and MAC vendor database versions via the authenticated GitHub API
+   (`GH_TOKEN`), diffs them against `versions.json`, and fetches upstream
+   release notes for any newly released component.
+2. **Clean rebuild:** builds `linux/amd64` from `debian:trixie-slim` with
+   `apt-get upgrade` and `--no-cache` on scheduled runs, verifying every
+   upstream artifact checksum and recording the exact Debian point release.
+3. **Vulnerability fix and gate:** scans the candidate image with **Trivy**
+   (table, JSON, and SARIF uploaded to GitHub code scanning) and **Grype**;
+   fails the build on any fixable **CRITICAL** or **HIGH** vulnerability,
+   retains reports and an SPDX SBOM (Syft) as 90-day artifacts, and diffs
+   findings against the previous build.
+4. **Smoke test:** starts the candidate container, waits for `healthy`, checks
+   non-root FTL execution, verifies local and recursive DNS plus `/admin/` HTTP
+   responses, and asserts that the healthcheck fails closed when FTL stops.
+5. **Publish:** on non-PR runs with Docker Hub credentials configured, pushes
+   `latest`, `<version>`, `<version>-<YYYYMMDD>` (immutable), and `sha-<short>`,
+   recording the published digest.
+6. **Automated documentation sync:** when versions, base OS, digest, or CVE
+   status change, commits updated `versions.json`, the README "Current
+   versions" block, and a dated `CHANGELOG.md` entry (`[skip ci]`), then syncs
+   the README and short description to Docker Hub.
+7. **Alerting:** if any job fails on a scheduled or `main` run, opens or
+   updates a single GitHub issue labeled `ci-failure` with the failing job and
+   run link, and closes it automatically on the next green run.
 
 Debian security updates therefore reach the image within a day of publication,
-and a new Pi-hole release is picked up automatically.
+and new Pi-hole releases are picked up automatically.
 
 ## Design decisions
 

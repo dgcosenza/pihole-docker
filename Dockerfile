@@ -26,8 +26,9 @@ ARG FTL_VERSION=v6.9
 ARG FTL_SHA256=8203d625fa1ee889710471b8f9b8a991fd6dddb4ca6a923d1ff43db47660865d
 # PADD (Pi-hole Ad-blocking Dashboard) pinned commit + SHA-256 of padd.sh
 ARG PADD_COMMIT=3600b2e0399967219ae998561bb474d8c169e432
-ARG PADD_SHA256=67fb9cc219be1758825d04cc19d85d454fc91a856edbd2f7787d52f62332e01b
-# MAC vendor database published by the Pi-hole project (no upstream checksum)
+ARG PADD_SHA256=5f62569868b9e081eba539c79c06e504cbb43a59cd0af052783e87b901ec2a24
+# MAC vendor database published by the Pi-hole project (no upstream checksum;
+# CI resolves the digest of the current file on every run)
 ARG MACVENDOR_SHA256=e07d5a2ac56c7b23582c174272c8cbb785859680e843c1295cb8b8726cfc3ac0
 
 ARG PIHOLE_UID=1000
@@ -62,6 +63,7 @@ RUN patch -p1 -d /scripts < /patches/0001-debian-gnu-userland.patch
 # ---- Stage 2: hardened Debian 13 runtime ------------------------------------
 FROM debian:${DEBIAN_VERSION}
 
+ARG DEBIAN_VERSION
 ARG PIHOLE_DOCKER_VERSION
 ARG PIHOLE_CORE_VERSION
 ARG PIHOLE_WEB_VERSION

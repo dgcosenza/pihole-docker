@@ -2,8 +2,8 @@ name: Daily build, scan and publish
 
 on:
   schedule:
-    # Daily rebuild at 05:10 UTC to pick up Debian 13 security
-    # updates and new Pi-hole component releases.
+    # Daily rebuild at 05:10 UTC to pick up Debian 13 security updates
+    # and new upstream Pi-hole component releases.
     - cron: '10 5 * * *'
   push:
     branches:
@@ -29,15 +29,9 @@ on:
         description: 'Override pi-hole/FTL release tag, e.g. v6.9'
         required: false
         default: ''
-      force_push:
-        description: 'Push even when triggered from a PR (requires Docker Hub secrets)'
-        type: boolean
-        required: false
-        default: false
 
 permissions:
   contents: read
-  security-events: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -51,14 +45,37 @@ env:
   FTL_VERSION_DEFAULT: 'v6.9'
 
 jobs:
+  public-check:
+    name: Public content and attribution check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Verify public content and maintainer attribution
+        env:
+          PR_TEXT: ${{ github.event.pull_request.title }} ${{ github.event.pull_request.body }}
+        run: .github/scripts/public-check.sh
+
   build-scan-publish:
+    name: Build, scan, smoke test and publish
+    needs: [public-check]
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    permissions:
+      contents: read
+      security-events: write
+    outputs:
+      upstream_version: ${{ steps.upstream.outputs.dok_tag }}
+      build_date: ${{ steps.upstream.outputs.build_date }}
+      published_digest: ${{ steps.push.outputs.digest }}
+      can_publish: ${{ steps.hub_auth.outputs.can_publish }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
 
-      - name: Resolve upstream versions (authenticated GitHub API)
+      - name: Step 1 - Resolve upstream versions and release notes
         id: upstream
         shell: bash
         env:
@@ -73,40 +90,79 @@ jobs:
               -H 'X-GitHub-Api-Version: 2022-11-28' \
               "$@"
           }
-          latest_tag() {
-            api "https://api.github.com/repos/$1/releases/latest" | jq -r '.tag_name // empty'
+          latest_release_json() {
+            api "https://api.github.com/repos/$1/releases/latest"
           }
 
+          DOK_JSON="$(latest_release_json pi-hole/docker-pi-hole)"
+          CORE_JSON="$(latest_release_json pi-hole/pi-hole)"
+          WEB_JSON="$(latest_release_json pi-hole/web)"
+          FTL_JSON="$(latest_release_json pi-hole/FTL)"
+
           DOK_TAG="${{ inputs.pihole_docker_version }}"
-          test -n "$DOK_TAG" || DOK_TAG="$(latest_tag pi-hole/docker-pi-hole)"
+          test -n "$DOK_TAG" || DOK_TAG="$(printf '%s' "$DOK_JSON" | jq -r '.tag_name // empty')"
           test -n "$DOK_TAG" || DOK_TAG="${PIHOLE_DOCKER_VERSION_DEFAULT}"
 
           CORE_TAG="${{ inputs.core_version }}"
-          test -n "$CORE_TAG" || CORE_TAG="$(latest_tag pi-hole/pi-hole)"
+          test -n "$CORE_TAG" || CORE_TAG="$(printf '%s' "$CORE_JSON" | jq -r '.tag_name // empty')"
           test -n "$CORE_TAG" || CORE_TAG="${CORE_VERSION_DEFAULT}"
 
           WEB_TAG="${{ inputs.web_version }}"
-          test -n "$WEB_TAG" || WEB_TAG="$(latest_tag pi-hole/web)"
+          test -n "$WEB_TAG" || WEB_TAG="$(printf '%s' "$WEB_JSON" | jq -r '.tag_name // empty')"
           test -n "$WEB_TAG" || WEB_TAG="${WEB_VERSION_DEFAULT}"
 
           FTL_TAG="${{ inputs.ftl_version }}"
-          test -n "$FTL_TAG" || FTL_TAG="$(latest_tag pi-hole/FTL)"
+          test -n "$FTL_TAG" || FTL_TAG="$(printf '%s' "$FTL_JSON" | jq -r '.tag_name // empty')"
           test -n "$FTL_TAG" || FTL_TAG="${FTL_VERSION_DEFAULT}"
 
-          # Verify the FTL release actually ships an amd64 binary and digest.
+          # Verify the resolved docker-pi-hole tag exists upstream.
+          api "https://api.github.com/repos/pi-hole/docker-pi-hole/git/ref/tags/${DOK_TAG}" >/dev/null
+
+          # Verify FTL amd64 binary against upstream SHA-1 and compute SHA-256.
           FTL_BASE="https://github.com/pi-hole/FTL/releases/download/${FTL_TAG}"
           TMP="$(mktemp -d)"
+          trap 'rm -rf "$TMP"' EXIT
           curl -fsSL --retry 3 "$FTL_BASE/pihole-FTL-amd64" -o "$TMP/ftl"
           curl -fsSL --retry 3 "$FTL_BASE/pihole-FTL-amd64.sha1" -o "$TMP/ftl.sha1"
           UP_SHA1="$(cut -d' ' -f1 "$TMP/ftl.sha1")"
           echo "${UP_SHA1}  $TMP/ftl" | sha1sum -c -
           FTL_SHA256="$(sha256sum "$TMP/ftl" | cut -d' ' -f1)"
-          rm -rf "$TMP"
 
-          # Sanity check: the resolved docker-pi-hole tag must exist upstream.
-          api "https://api.github.com/repos/pi-hole/docker-pi-hole/git/ref/tags/${DOK_TAG}" >/dev/null
+          # Resolve latest PADD commit on master and its SHA-256.
+          PADD_COMMIT="$(api "https://api.github.com/repos/pi-hole/PADD/commits/master" | jq -r '.sha')"
+          curl -fsSL --retry 3 "https://raw.githubusercontent.com/pi-hole/PADD/${PADD_COMMIT}/padd.sh" -o "$TMP/padd.sh"
+          PADD_SHA256="$(sha256sum "$TMP/padd.sh" | cut -d' ' -f1)"
+
+          # Resolve current macvendor.db SHA-256.
+          curl -fsSL --retry 3 "https://ftl.pi-hole.net/macvendor.db" -o "$TMP/macvendor.db"
+          MACVENDOR_SHA256="$(sha256sum "$TMP/macvendor.db" | cut -d' ' -f1)"
+
+          # Diff against committed versions.json and capture release notes for new versions.
+          : > upstream-changes.md
+          OLD_DOK="$(jq -r '.components["docker-pi-hole"] // ""' versions.json 2>/dev/null || true)"
+          OLD_CORE="$(jq -r '.components["pi-hole-core"] // ""' versions.json 2>/dev/null || true)"
+          OLD_WEB="$(jq -r '.components["pi-hole-web"] // ""' versions.json 2>/dev/null || true)"
+          OLD_FTL="$(jq -r '.components["pi-hole-ftl"] // ""' versions.json 2>/dev/null || true)"
+
+          if [ "$DOK_TAG" != "$OLD_DOK" ]; then
+            echo "## docker-pi-hole ${DOK_TAG}" >> upstream-changes.md
+            printf '%s\n\n' "$(printf '%s' "$DOK_JSON" | jq -r '.body // ""')" >> upstream-changes.md
+          fi
+          if [ "$CORE_TAG" != "$OLD_CORE" ]; then
+            echo "## pi-hole Core ${CORE_TAG}" >> upstream-changes.md
+            printf '%s\n\n' "$(printf '%s' "$CORE_JSON" | jq -r '.body // ""')" >> upstream-changes.md
+          fi
+          if [ "$WEB_TAG" != "$OLD_WEB" ]; then
+            echo "## pi-hole Web ${WEB_TAG}" >> upstream-changes.md
+            printf '%s\n\n' "$(printf '%s' "$WEB_JSON" | jq -r '.body // ""')" >> upstream-changes.md
+          fi
+          if [ "$FTL_TAG" != "$OLD_FTL" ]; then
+            echo "## pi-hole FTL ${FTL_TAG}" >> upstream-changes.md
+            printf '%s\n\n' "$(printf '%s' "$FTL_JSON" | jq -r '.body // ""')" >> upstream-changes.md
+          fi
 
           BUILD_DATE="$(date -u +%Y%m%d)"
+          BUILD_ISO_DATE="$(date -u +%Y-%m-%d)"
           CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
           {
@@ -115,7 +171,11 @@ jobs:
             echo "web_tag=${WEB_TAG}"
             echo "ftl_tag=${FTL_TAG}"
             echo "ftl_sha256=${FTL_SHA256}"
+            echo "padd_commit=${PADD_COMMIT}"
+            echo "padd_sha256=${PADD_SHA256}"
+            echo "macvendor_sha256=${MACVENDOR_SHA256}"
             echo "build_date=${BUILD_DATE}"
+            echo "build_iso_date=${BUILD_ISO_DATE}"
             echo "created=${CREATED}"
           } >> "$GITHUB_OUTPUT"
 
@@ -128,13 +188,23 @@ jobs:
             echo "| pi-hole Core | ${CORE_TAG} |"
             echo "| pi-hole Web | ${WEB_TAG} |"
             echo "| pi-hole FTL | ${FTL_TAG} |"
+            echo "| PADD | ${PADD_COMMIT:0:12} |"
             echo "| FTL amd64 SHA-256 | ${FTL_SHA256} |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload upstream-changes artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: upstream-changes
+          path: upstream-changes.md
+          retention-days: 90
+          if-no-files-found: ignore
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build linux/amd64 image
+      - name: Step 2 - Build linux/amd64 image
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -149,71 +219,23 @@ jobs:
             PIHOLE_WEB_VERSION=${{ steps.upstream.outputs.web_tag }}
             FTL_VERSION=${{ steps.upstream.outputs.ftl_tag }}
             FTL_SHA256=${{ steps.upstream.outputs.ftl_sha256 }}
+            PADD_COMMIT=${{ steps.upstream.outputs.padd_commit }}
+            PADD_SHA256=${{ steps.upstream.outputs.padd_sha256 }}
+            MACVENDOR_SHA256=${{ steps.upstream.outputs.macvendor_sha256 }}
             IMAGE_CREATED=${{ steps.upstream.outputs.created }}
             IMAGE_REVISION=${{ github.sha }}
             IMAGE_SOURCE=https://github.com/${{ github.repository }}
 
-      - name: Smoke test (DNS answers, web UI, healthcheck, negative tests)
+      - name: Record exact Debian release inside built image
+        id: os_meta
         shell: bash
         run: |
           set -euo pipefail
-          DATA="$(mktemp -d)"
-          chmod 777 "$DATA"
-          NAME=pihole-ci-smoke
-          cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; docker run --rm -v "$DATA:/x" --entrypoint chmod "${IMAGE_NAME}:ci-candidate" -R 777 /x >/dev/null 2>&1 || true; rm -rf "$DATA"; }
-          trap cleanup EXIT
+          DEBIAN_VER="$(docker run --rm --entrypoint cat "${IMAGE_NAME}:ci-candidate" /etc/debian_version | tr -d '\r\n')"
+          echo "debian_version=${DEBIAN_VER}" >> "$GITHUB_OUTPUT"
+          echo "Built image Debian version: ${DEBIAN_VER}"
 
-          docker run -d --name "$NAME" \
-            --security-opt no-new-privileges:true \
-            -e TZ=UTC \
-            -e FTLCONF_webserver_api_password=ci-smoke-password \
-            -p 127.0.0.1:15353:53/tcp \
-            -p 127.0.0.1:15353:53/udp \
-            -p 127.0.0.1:18080:80/tcp \
-            -v "$DATA/etc-pihole:/etc/pihole" \
-            -v "$DATA/etc-dnsmasq.d:/etc/dnsmasq.d" \
-            -v "$DATA/var-log-pihole:/var/log/pihole" \
-            "${IMAGE_NAME}:ci-candidate"
-
-          # Wait for the image healthcheck to report healthy.
-          for i in $(seq 1 60); do
-            status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$NAME")"
-            [ "$status" = "healthy" ] && break
-            [ "$status" = "unhealthy" ] && { docker logs "$NAME"; exit 1; }
-            sleep 2
-          done
-          test "$(docker inspect -f '{{.State.Health.Status}}' "$NAME")" = "healthy"
-
-          # Non-root service account exists with the documented uid/gid.
-          test "$(docker exec "$NAME" id -u pihole)" = "1000"
-          test "$(docker exec "$NAME" id -g pihole)" = "1000"
-
-          # FTL is running as the unprivileged DNSMASQ_USER, not as root.
-          docker exec "$NAME" sh -c 'ps -o user,args -C pihole-FTL' | grep -q '^pihole'
-
-          # pi.hole resolves to the container's own DNS address.
-          docker exec "$NAME" dig +short +norecurse @127.0.0.1 pi.hole | grep -q '^127.0.0.1$'
-          # Public recursion works through the embedded resolver.
-          docker exec "$NAME" dig +short +time=5 +tries=2 @127.0.0.1 example.com | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
-
-          # Web interface answers on /admin/.
-          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 http://127.0.0.1:18080/admin/)"
-          test "$code" = "200" -o "$code" = "302"
-
-          # Component versions are reported (proves git safe.directory works).
-          docker exec "$NAME" pihole -v
-
-          # Negative test: the healthcheck must fail when FTL is stopped.
-          docker exec "$NAME" sh -c 'killall --signal 9 pihole-FTL || true'
-          sleep 3
-          if docker exec "$NAME" sh -c 'dig -p $(pihole-FTL --config dns.port) +short +norecurse +retry=0 @127.0.0.1 pi.hole'; then
-            echo "ERROR: DNS still answered after FTL was killed" >&2
-            exit 1
-          fi
-
-          echo "Smoke test passed."
-
-      - name: Scan image with Trivy - full report (informational)
+      - name: Step 3a - Trivy full report (table + JSON, informational)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: '${{ env.IMAGE_NAME }}:ci-candidate'
@@ -223,7 +245,45 @@ jobs:
           exit-code: '0'
           output: 'trivy-report.txt'
 
-      - name: Scan image with Trivy - HARD GATE (fail on any fixable CRITICAL or HIGH)
+      - name: Step 3b - Trivy JSON report (for CVE diffing)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate'
+          format: 'json'
+          severity: 'CRITICAL,HIGH'
+          vuln-type: 'os,library'
+          exit-code: '0'
+          output: 'trivy-report.json'
+
+      - name: Step 3c - Trivy SARIF report for GitHub code scanning
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate'
+          format: 'sarif'
+          severity: 'CRITICAL,HIGH'
+          vuln-type: 'os,library'
+          ignore-unfixed: true
+          exit-code: '0'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy SARIF to code scanning
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: trivy-pihole
+
+      - name: Upload Trivy report artifacts (90 days)
+        uses: actions/upload-artifact@v7
+        with:
+          name: trivy-report
+          path: |
+            trivy-report.txt
+            trivy-report.json
+          retention-days: 90
+          if-no-files-found: ignore
+
+      - name: Step 3d - Trivy HARD GATE (0 fixable CRITICAL/HIGH)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: '${{ env.IMAGE_NAME }}:ci-candidate'
@@ -233,59 +293,44 @@ jobs:
           ignore-unfixed: true
           exit-code: '1'
 
-      - name: Scan image with Trivy - SARIF for code scanning
-        if: always()
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate'
-          format: 'sarif'
-          severity: 'CRITICAL,HIGH'
-          ignore-unfixed: true
-          output: 'trivy-results.sarif'
-          exit-code: '0'
-
-      - name: Upload Trivy SARIF to code scanning
-        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: 'trivy-results.sarif'
-          category: trivy-image
-
-      - name: Upload Trivy report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-report
-          path: trivy-report.txt
-          if-no-files-found: ignore
-
-      - name: Scan image with Grype
+      - name: Step 3e - Grype HARD GATE (0 fixable CRITICAL/HIGH)
         id: grype
-        if: always()
         uses: anchore/scan-action@v7
         with:
           image: '${{ env.IMAGE_NAME }}:ci-candidate'
-          fail-build: false
           only-fixed: true
           severity-cutoff: high
+          fail-build: true
           output-format: table
           output-file: grype-report.txt
 
-      - name: Upload Grype report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Upload Grype report artifact (90 days)
+        if: always() && steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v7
         with:
           name: grype-report
           path: grype-report.txt
+          retention-days: 90
           if-no-files-found: ignore
 
-      - name: Generate SBOM with Syft
-        if: always()
+      - name: Generate SPDX SBOM with Syft
         uses: anchore/sbom-action@v0
         with:
           image: '${{ env.IMAGE_NAME }}:ci-candidate'
           format: 'spdx-json'
-          artifact-name: 'sbom.spdx.json'
+          output-file: 'sbom.spdx.json'
+          upload-artifact: false
+
+      - name: Upload SBOM artifact (90 days)
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom-spdx-json
+          path: sbom.spdx.json
+          retention-days: 90
+
+      - name: Step 4 - Smoke test (DNS, web UI, healthcheck, non-root, negative test)
+        shell: bash
+        run: ./tests/smoke.sh "${IMAGE_NAME}:ci-candidate"
 
       - name: Check Docker Hub publish credentials
         id: hub_auth
@@ -308,7 +353,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Tag and push verified image to Docker Hub
+      - name: Step 5 - Tag and push verified image to Docker Hub
         if: steps.hub_auth.outputs.can_publish == 'true'
         id: push
         shell: bash
@@ -329,25 +374,185 @@ jobs:
           echo "Published digest: ${DIGEST}"
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
 
-      - name: Read Docker Hub short description
-        if: steps.hub_auth.outputs.can_publish == 'true'
-        id: short_desc
+      - name: Prepare release metadata and CVE diff for docs auto-update
+        shell: bash
+        env:
+          DOK_TAG: ${{ steps.upstream.outputs.dok_tag }}
+          CORE_TAG: ${{ steps.upstream.outputs.core_tag }}
+          WEB_TAG: ${{ steps.upstream.outputs.web_tag }}
+          FTL_TAG: ${{ steps.upstream.outputs.ftl_tag }}
+          PADD_COMMIT: ${{ steps.upstream.outputs.padd_commit }}
+          DEBIAN_VER: ${{ steps.os_meta.outputs.debian_version }}
+          BUILD_ISO_DATE: ${{ steps.upstream.outputs.build_iso_date }}
+          PUBLISHED_DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+
+          old = json.load(open("versions.json")) if os.path.exists("versions.json") else {}
+          prev_unfixed = set(old.get("unfixed_high_critical") or [])
+
+          cur_unfixed = set()
+          if os.path.exists("trivy-report.json"):
+              tr = json.load(open("trivy-report.json"))
+              for res in tr.get("Results") or []:
+                  for v in res.get("Vulnerabilities") or []:
+                      if v.get("Severity") in ("CRITICAL", "HIGH") and not v.get("FixedVersion"):
+                          cur_unfixed.add(v["VulnerabilityID"])
+
+          fixed_cves = sorted(prev_unfixed - cur_unfixed)
+          json.dump({"fixed_cves": fixed_cves}, open("cve-diff.json", "w"), indent=2)
+
+          new_versions = {
+              "image": os.environ["IMAGE_NAME"],
+              "upstream_version": os.environ["DOK_TAG"],
+              "debian_version": os.environ["DEBIAN_VER"],
+              "components": {
+                  "docker-pi-hole": os.environ["DOK_TAG"],
+                  "pi-hole-core": os.environ["CORE_TAG"],
+                  "pi-hole-web": os.environ["WEB_TAG"],
+                  "pi-hole-ftl": os.environ["FTL_TAG"],
+                  "padd": os.environ["PADD_COMMIT"],
+              },
+              "last_build_date": os.environ["BUILD_ISO_DATE"],
+              "last_digest": os.environ.get("PUBLISHED_DIGEST", ""),
+              "unfixed_high_critical": sorted(cur_unfixed),
+          }
+          json.dump(new_versions, open("versions.new.json", "w"), indent=2)
+          PY
+
+      - name: Upload release metadata artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-meta
+          path: |
+            versions.new.json
+            upstream-changes.md
+            cve-diff.json
+          retention-days: 7
+
+  update-docs:
+    name: Step 6 - Auto-update docs and sync Docker Hub overview
+    needs: [public-check, build-scan-publish]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Download release metadata
+        uses: actions/download-artifact@v5
+        with:
+          name: release-meta
+          path: .ci-meta
+
+      - name: Update versions.json, README.md, and CHANGELOG.md
         shell: bash
         run: |
           set -euo pipefail
-          DESC="$(tr -d '\r\n' < DOCKERHUB_SHORT_DESCRIPTION)"
-          if [ "${#DESC}" -gt 100 ]; then
-            echo "ERROR: DOCKERHUB_SHORT_DESCRIPTION exceeds 100 characters (${#DESC})." >&2
-            exit 1
+          python3 .github/scripts/update-docs.py \
+            .ci-meta/versions.new.json \
+            .ci-meta/upstream-changes.md \
+            .ci-meta/cve-diff.json
+          rm -rf .ci-meta
+
+      - name: Verify public content check before bot commit
+        run: .github/scripts/public-check.sh
+
+      - name: Commit and push documentation updates if changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- versions.json README.md CHANGELOG.md; then
+            echo "No tracked documentation changes to commit."
+            exit 0
           fi
-          echo "text=${DESC}" >> "$GITHUB_OUTPUT"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add versions.json README.md CHANGELOG.md
+          git commit -m "chore(deps): daily version and changelog update [skip ci]"
+          git push origin main
+
+      - name: Check Docker Hub credentials for overview sync
+        id: hub_sync
+        shell: bash
+        env:
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -n "$DH_USER" ] && [ -n "$DH_TOKEN" ]; then
+            DESC="$(tr -d '\r\n' < DOCKERHUB_SHORT_DESCRIPTION)"
+            if [ "${#DESC}" -gt 100 ]; then
+              echo "ERROR: DOCKERHUB_SHORT_DESCRIPTION exceeds 100 characters (${#DESC})." >&2
+              exit 1
+            fi
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "short_desc=${DESC}" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Sync Docker Hub repository overview (short & full description)
-        if: steps.hub_auth.outputs.can_publish == 'true'
+        if: steps.hub_sync.outputs.enabled == 'true'
         uses: peter-evans/dockerhub-description@v5
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ env.IMAGE_NAME }}
-          short-description: ${{ steps.short_desc.outputs.text }}
+          short-description: ${{ steps.hub_sync.outputs.short_desc }}
           readme-filepath: ./README.md
+
+  alert:
+    name: Step 7 - Open/update or close ci-failure issue
+    needs: [public-check, build-scan-publish, update-docs]
+    if: always() && (github.event_name == 'schedule' || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Reconcile ci-failure issue state
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RES_PUBLIC: ${{ needs.public-check.result }}
+          RES_BUILD: ${{ needs.build-scan-publish.result }}
+          RES_DOCS: ${{ needs.update-docs.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          FAILED_STEP=""
+          for pair in "public-check:${RES_PUBLIC}" "build-scan-publish:${RES_BUILD}" "update-docs:${RES_DOCS}"; do
+            job="${pair%%:*}"
+            res="${pair##*:}"
+            if [ "$res" = "failure" ]; then
+              FAILED_STEP="$job"
+              break
+            fi
+          done
+
+          gh label create ci-failure --repo "$GITHUB_REPOSITORY" --color B60205 \
+            --description "Automated daily build or security scan failure" 2>/dev/null || true
+
+          EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --label ci-failure --state open --json number --jq '.[0].number // empty')"
+
+          if [ -n "$FAILED_STEP" ]; then
+            TITLE="Daily build failed: ${FAILED_STEP}"
+            BODY="$(printf 'The daily pipeline failed on **%s**.\n\n- Workflow run: %s\n- Event: `%s`\n- Commit: `%s`\n- Job results: `public-check=%s`, `build-scan-publish=%s`, `update-docs=%s`\n' \
+              "$FAILED_STEP" "$RUN_URL" "${{ github.event_name }}" "${{ github.sha }}" "$RES_PUBLIC" "$RES_BUILD" "$RES_DOCS")"
+            if [ -n "$EXISTING" ]; then
+              gh issue edit "$EXISTING" --repo "$GITHUB_REPOSITORY" --title "$TITLE"
+              gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+            else
+              gh issue create --repo "$GITHUB_REPOSITORY" --label ci-failure --title "$TITLE" --body "$BODY"
+            fi
+          elif [ "$RES_PUBLIC" = "success" ] && [ "$RES_BUILD" = "success" ] && { [ "$RES_DOCS" = "success" ] || [ "$RES_DOCS" = "skipped" ]; }; then
+            if [ -n "$EXISTING" ]; then
+              gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" \
+                --body "Resolved: pipeline is green again in ${RUN_URL} (commit \`${{ github.sha }}\`). Closing automatically."
+              gh issue close "$EXISTING" --repo "$GITHUB_REPOSITORY" --reason completed
+            fi
+          fi

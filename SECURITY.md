@@ -1,5 +1,7 @@
 # Security policy
 
+Maintainer: Daniel G. Cosenza from FNX Labs.
+
 ## Supported versions
 
 Only the `latest` tag and the newest `<pihole-version>` tag are supported. The

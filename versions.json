@@ -1,0 +1,15 @@
+{
+  "image": "dgcosenza/pihole",
+  "upstream_version": "2026.11.0",
+  "debian_version": "13",
+  "components": {
+    "docker-pi-hole": "2026.11.0",
+    "pi-hole-core": "v6.6",
+    "pi-hole-web": "v6.6.1",
+    "pi-hole-ftl": "v6.9",
+    "padd": "3600b2e0399967219ae998561bb474d8c169e432"
+  },
+  "last_build_date": "2026-11-24",
+  "last_digest": "",
+  "unfixed_high_critical": []
+}

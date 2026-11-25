@@ -1,4 +1,4 @@
-# Production-style compose example for dgcosenza/pihole
+# Hardened production-style compose example for dgcosenza/pihole
 #
 # Replace 192.0.2.10 with your host's LAN IP, change the timezone and the
 # web password, and pin the image by @sha256 digest for production.
@@ -12,8 +12,23 @@ services:
     image: dgcosenza/pihole:latest
     container_name: pihole
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+      - AUDIT_WRITE
     security_opt:
       - no-new-privileges:true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64m
     ports:
       # DNS: bind to the interfaces you actually serve.
       - "192.0.2.10:53:53/tcp"
@@ -24,17 +39,16 @@ services:
       - "192.0.2.10:80:80/tcp"
       - "127.0.0.1:8080:80/tcp"
     environment:
-      TZ: "Europe/Berlin"
+      TZ: "Etc/UTC"
       # Prefer a Docker secret over a plain environment variable:
       #   WEBPASSWORD_FILE: pihole_password   (mounted at /run/secrets/pihole_password)
-      FTLCONF_webserver_api_password: "change-me"
+      FTLCONF_webserver_api_password: "${PIHOLE_API_PASSWORD:-change-me}"
       # Recursive resolver on the compose network (see the unbound service).
       FTLCONF_dns_upstreams: "172.20.0.10#53"
-      # Required when clients reach the container through NAT (bridge network,
-      # a VPN): otherwise dnsmasq ignores non-local queries.
+      # Required when clients reach the container through NAT (bridge network, VPN).
       FTLCONF_dns_listeningMode: "all"
       # Rate limiting is per client address; behind NAT every client looks like
-      # the gateway, so the default 1000/60s trips and cuts off all DNS.
+      # the gateway, so setting 0 avoids false rate-limit lockouts.
       FTLCONF_dns_rateLimit_count: "0"
       FTLCONF_dns_rateLimit_interval: "60"
       # Conditional forwarding for the LAN reverse zone.
@@ -43,11 +57,8 @@ services:
       - ./etc-pihole:/etc/pihole
       - ./etc-dnsmasq.d:/etc/dnsmasq.d
       - ./var-log-pihole:/var/log/pihole
-    cap_add:
-      - NET_ADMIN
-      - SYS_NICE
     healthcheck:
-      test: ["CMD-SHELL", "dig -p $(pihole-FTL --config dns.port) +short +norecurse +retry=0 @127.0.0.1 pi.hole || exit 1"]
+      test: ["CMD-SHELL", "dig -p \"$(pihole-FTL --config dns.port)\" +short +norecurse +retry=0 @127.0.0.1 pi.hole || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -65,6 +76,14 @@ services:
     image: dgcosenza/unbound:latest
     container_name: unbound
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - SETUID
+      - SETGID
+      - CHOWN
+      - DAC_OVERRIDE
     security_opt:
       - no-new-privileges:true
     networks:

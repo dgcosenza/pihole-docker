@@ -24,14 +24,16 @@ published only when the build and the scans pass.
 
 | Component | Resolved version |
 |---|---|
-| Base OS | Debian `13` (`debian:trixie-slim`) |
+| Base OS | Debian `13.8` (`debian:trixie-slim`) |
 | `docker-pi-hole` | `2026.11.0` |
 | `pi-hole-core` | `v6.6` |
 | `pi-hole-web` | `v6.6.1` |
 | `pi-hole-ftl` | `v6.9` |
 | `padd` | `3600b2e03999` |
-| Last verified build | `2026-11-24` |
+| Last verified build | `2026-11-25` |
 | Fixable CRITICAL / HIGH CVEs | `0` (Trivy + Grype gate) |
+
+Currently tracked unfixed upstream findings (no fix released): `CVE-2019-16224`, `CVE-2019-16225`, `CVE-2019-16226`, `CVE-2019-16227`, `CVE-2019-16228`, `CVE-2025-69720`, `CVE-2026-105437`, `CVE-2026-107494`, `CVE-2026-111760`, `CVE-2026-113351`.
 
 <!-- versions:end -->
 

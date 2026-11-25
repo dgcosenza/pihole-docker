@@ -7,6 +7,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this project adheres to [Semantic Versioning](https://semver.org/) for the
 packaging, while the image version tracks the upstream Pi-hole release.
 
+## [2026.11.0] - 2026-11-25
+
+### Changed
+
+- Rebuilt on Debian `13.8` (`debian:trixie-slim`) with docker-pi-hole `2026.11.0`, pi-hole-core `v6.6`, pi-hole-web `v6.6.1`, pi-hole-ftl `v6.9`, padd `3600b2e03999`.
+- Verified `0` fixable CRITICAL/HIGH vulnerabilities in Trivy and Grype.
+
 ## [2026.11.0] - 2026-11-24
 
 ### Added

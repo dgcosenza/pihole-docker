@@ -1,0 +1,41 @@
+Debian 13 (trixie) adaptation of pi-hole/docker-pi-hole's bash_functions.sh.
+
+The upstream script is written for the Alpine-based official image. This patch
+is the only behavioural delta required to run the same entrypoint on Debian:
+
+  1. ADDITIONAL_PACKAGES: install through apt-get instead of apk.
+  2. start_cron: use Debian's cron daemon (`cron -f`) instead of BusyBox
+     `crond -f -d 6`. The crontab itself (crontab.txt) is unchanged.
+
+Both changes only affect optional/auxiliary paths; DNS, DHCP, the web server,
+FTL start/stop and the config handling run identical code.
+
+--- a/bash_functions.sh	2026-11-24 22:51:06.773663227 -0300
++++ b/bash_functions.sh	2026-11-24 22:53:56.390750837 -0300
+@@ -65,13 +65,13 @@
+ install_additional_packages() {
+     if [ -n "${ADDITIONAL_PACKAGES}" ]; then
+         echo "  [i] Additional packages requested: ${ADDITIONAL_PACKAGES}"
+-        echo "  [i] Fetching APK repository metadata."
+-        if ! apk update; then
+-            echo "  [i] Failed to fetch APK repository metadata."
++        echo "  [i] Fetching APT repository metadata."
++        if ! apt-get update; then
++            echo "  [i] Failed to fetch APT repository metadata."
+         else
+             echo "  [i] Installing additional packages: ${ADDITIONAL_PACKAGES}."
+             # shellcheck disable=SC2086
+-            if ! apk add --no-cache ${ADDITIONAL_PACKAGES}; then
++            if ! apt-get install -y --no-install-recommends ${ADDITIONAL_PACKAGES}; then
+                 echo "  [i] Failed to install additional packages."
+             fi
+         fi
+@@ -91,7 +91,7 @@
+ 
+     # Run crond in foreground, prefix each line from STDIN/STDOUT with the current date/time/timezone and
+     # write to PID 1 STDOUT (docker log)
+-    { /usr/sbin/crond -f -d 6 |& prefix-time.sh; } &
++    { /usr/sbin/cron -f |& prefix-time.sh; } &
+     echo ""
+ }
+ 

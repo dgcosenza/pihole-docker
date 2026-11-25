@@ -1,0 +1,353 @@
+name: Daily build, scan and publish
+
+on:
+  schedule:
+    # Daily rebuild at 05:10 UTC to pick up Debian 13 security
+    # updates and new Pi-hole component releases.
+    - cron: '10 5 * * *'
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      pihole_docker_version:
+        description: 'Override pi-hole/docker-pi-hole release tag (image version)'
+        required: false
+        default: ''
+      core_version:
+        description: 'Override pi-hole/pi-hole (Core) release tag, e.g. v6.6'
+        required: false
+        default: ''
+      web_version:
+        description: 'Override pi-hole/web release tag, e.g. v6.6.1'
+        required: false
+        default: ''
+      ftl_version:
+        description: 'Override pi-hole/FTL release tag, e.g. v6.9'
+        required: false
+        default: ''
+      force_push:
+        description: 'Push even when triggered from a PR (requires Docker Hub secrets)'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: dgcosenza/pihole
+  PIHOLE_DOCKER_VERSION_DEFAULT: '2026.11.0'
+  CORE_VERSION_DEFAULT: 'v6.6'
+  WEB_VERSION_DEFAULT: 'v6.6.1'
+  FTL_VERSION_DEFAULT: 'v6.9'
+
+jobs:
+  build-scan-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Resolve upstream versions (authenticated GitHub API)
+        id: upstream
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          api() {
+            curl -fsSL \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "$@"
+          }
+          latest_tag() {
+            api "https://api.github.com/repos/$1/releases/latest" | jq -r '.tag_name // empty'
+          }
+
+          DOK_TAG="${{ inputs.pihole_docker_version }}"
+          test -n "$DOK_TAG" || DOK_TAG="$(latest_tag pi-hole/docker-pi-hole)"
+          test -n "$DOK_TAG" || DOK_TAG="${PIHOLE_DOCKER_VERSION_DEFAULT}"
+
+          CORE_TAG="${{ inputs.core_version }}"
+          test -n "$CORE_TAG" || CORE_TAG="$(latest_tag pi-hole/pi-hole)"
+          test -n "$CORE_TAG" || CORE_TAG="${CORE_VERSION_DEFAULT}"
+
+          WEB_TAG="${{ inputs.web_version }}"
+          test -n "$WEB_TAG" || WEB_TAG="$(latest_tag pi-hole/web)"
+          test -n "$WEB_TAG" || WEB_TAG="${WEB_VERSION_DEFAULT}"
+
+          FTL_TAG="${{ inputs.ftl_version }}"
+          test -n "$FTL_TAG" || FTL_TAG="$(latest_tag pi-hole/FTL)"
+          test -n "$FTL_TAG" || FTL_TAG="${FTL_VERSION_DEFAULT}"
+
+          # Verify the FTL release actually ships an amd64 binary and digest.
+          FTL_BASE="https://github.com/pi-hole/FTL/releases/download/${FTL_TAG}"
+          TMP="$(mktemp -d)"
+          curl -fsSL --retry 3 "$FTL_BASE/pihole-FTL-amd64" -o "$TMP/ftl"
+          curl -fsSL --retry 3 "$FTL_BASE/pihole-FTL-amd64.sha1" -o "$TMP/ftl.sha1"
+          UP_SHA1="$(cut -d' ' -f1 "$TMP/ftl.sha1")"
+          echo "${UP_SHA1}  $TMP/ftl" | sha1sum -c -
+          FTL_SHA256="$(sha256sum "$TMP/ftl" | cut -d' ' -f1)"
+          rm -rf "$TMP"
+
+          # Sanity check: the resolved docker-pi-hole tag must exist upstream.
+          api "https://api.github.com/repos/pi-hole/docker-pi-hole/git/ref/tags/${DOK_TAG}" >/dev/null
+
+          BUILD_DATE="$(date -u +%Y%m%d)"
+          CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          {
+            echo "dok_tag=${DOK_TAG}"
+            echo "core_tag=${CORE_TAG}"
+            echo "web_tag=${WEB_TAG}"
+            echo "ftl_tag=${FTL_TAG}"
+            echo "ftl_sha256=${FTL_SHA256}"
+            echo "build_date=${BUILD_DATE}"
+            echo "created=${CREATED}"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Resolved upstream versions"
+            echo ""
+            echo "| Component | Version |"
+            echo "|---|---|"
+            echo "| docker-pi-hole | ${DOK_TAG} |"
+            echo "| pi-hole Core | ${CORE_TAG} |"
+            echo "| pi-hole Web | ${WEB_TAG} |"
+            echo "| pi-hole FTL | ${FTL_TAG} |"
+            echo "| FTL amd64 SHA-256 | ${FTL_SHA256} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build linux/amd64 image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          no-cache: ${{ github.event_name == 'schedule' }}
+          tags: |
+            ${{ env.IMAGE_NAME }}:ci-candidate
+          build-args: |
+            PIHOLE_DOCKER_VERSION=${{ steps.upstream.outputs.dok_tag }}
+            PIHOLE_CORE_VERSION=${{ steps.upstream.outputs.core_tag }}
+            PIHOLE_WEB_VERSION=${{ steps.upstream.outputs.web_tag }}
+            FTL_VERSION=${{ steps.upstream.outputs.ftl_tag }}
+            FTL_SHA256=${{ steps.upstream.outputs.ftl_sha256 }}
+            IMAGE_CREATED=${{ steps.upstream.outputs.created }}
+            IMAGE_REVISION=${{ github.sha }}
+            IMAGE_SOURCE=https://github.com/${{ github.repository }}
+
+      - name: Smoke test (DNS answers, web UI, healthcheck, negative tests)
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATA="$(mktemp -d)"
+          chmod 777 "$DATA"
+          NAME=pihole-ci-smoke
+          cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; docker run --rm -v "$DATA:/x" --entrypoint chmod "${IMAGE_NAME}:ci-candidate" -R 777 /x >/dev/null 2>&1 || true; rm -rf "$DATA"; }
+          trap cleanup EXIT
+
+          docker run -d --name "$NAME" \
+            --security-opt no-new-privileges:true \
+            -e TZ=UTC \
+            -e FTLCONF_webserver_api_password=ci-smoke-password \
+            -p 127.0.0.1:15353:53/tcp \
+            -p 127.0.0.1:15353:53/udp \
+            -p 127.0.0.1:18080:80/tcp \
+            -v "$DATA/etc-pihole:/etc/pihole" \
+            -v "$DATA/etc-dnsmasq.d:/etc/dnsmasq.d" \
+            -v "$DATA/var-log-pihole:/var/log/pihole" \
+            "${IMAGE_NAME}:ci-candidate"
+
+          # Wait for the image healthcheck to report healthy.
+          for i in $(seq 1 60); do
+            status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$NAME")"
+            [ "$status" = "healthy" ] && break
+            [ "$status" = "unhealthy" ] && { docker logs "$NAME"; exit 1; }
+            sleep 2
+          done
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$NAME")" = "healthy"
+
+          # Non-root service account exists with the documented uid/gid.
+          test "$(docker exec "$NAME" id -u pihole)" = "1000"
+          test "$(docker exec "$NAME" id -g pihole)" = "1000"
+
+          # FTL is running as the unprivileged DNSMASQ_USER, not as root.
+          docker exec "$NAME" sh -c 'ps -o user,args -C pihole-FTL' | grep -q '^pihole'
+
+          # pi.hole resolves to the container's own DNS address.
+          docker exec "$NAME" dig +short +norecurse @127.0.0.1 pi.hole | grep -q '^127.0.0.1$'
+          # Public recursion works through the embedded resolver.
+          docker exec "$NAME" dig +short +time=5 +tries=2 @127.0.0.1 example.com | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
+
+          # Web interface answers on /admin/.
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 http://127.0.0.1:18080/admin/)"
+          test "$code" = "200" -o "$code" = "302"
+
+          # Component versions are reported (proves git safe.directory works).
+          docker exec "$NAME" pihole -v
+
+          # Negative test: the healthcheck must fail when FTL is stopped.
+          docker exec "$NAME" sh -c 'killall --signal 9 pihole-FTL || true'
+          sleep 3
+          if docker exec "$NAME" sh -c 'dig -p $(pihole-FTL --config dns.port) +short +norecurse +retry=0 @127.0.0.1 pi.hole'; then
+            echo "ERROR: DNS still answered after FTL was killed" >&2
+            exit 1
+          fi
+
+          echo "Smoke test passed."
+
+      - name: Scan image with Trivy - full report (informational)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          vuln-type: 'os,library'
+          exit-code: '0'
+          output: 'trivy-report.txt'
+
+      - name: Scan image with Trivy - HARD GATE (fail on any fixable CRITICAL or HIGH)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          vuln-type: 'os,library'
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Scan image with Trivy - SARIF for code scanning
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate'
+          format: 'sarif'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          output: 'trivy-results.sarif'
+          exit-code: '0'
+
+      - name: Upload Trivy SARIF to code scanning
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: trivy-image
+
+      - name: Upload Trivy report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-report.txt
+          if-no-files-found: ignore
+
+      - name: Scan image with Grype
+        id: grype
+        if: always()
+        uses: anchore/scan-action@v7
+        with:
+          image: '${{ env.IMAGE_NAME }}:ci-candidate'
+          fail-build: false
+          only-fixed: true
+          severity-cutoff: high
+          output-format: table
+          output-file: grype-report.txt
+
+      - name: Upload Grype report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grype-report
+          path: grype-report.txt
+          if-no-files-found: ignore
+
+      - name: Generate SBOM with Syft
+        if: always()
+        uses: anchore/sbom-action@v0
+        with:
+          image: '${{ env.IMAGE_NAME }}:ci-candidate'
+          format: 'spdx-json'
+          artifact-name: 'sbom.spdx.json'
+
+      - name: Check Docker Hub publish credentials
+        id: hub_auth
+        shell: bash
+        env:
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ] && [ -n "$DH_USER" ] && [ -n "$DH_TOKEN" ]; then
+            echo "can_publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "can_publish=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping Docker Hub push (PR event or DOCKERHUB_USERNAME/DOCKERHUB_TOKEN not configured)."
+          fi
+
+      - name: Log in to Docker Hub
+        if: steps.hub_auth.outputs.can_publish == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Tag and push verified image to Docker Hub
+        if: steps.hub_auth.outputs.can_publish == 'true'
+        id: push
+        shell: bash
+        env:
+          VERSION: ${{ steps.upstream.outputs.dok_tag }}
+          BUILD_DATE: ${{ steps.upstream.outputs.build_date }}
+        run: |
+          set -euo pipefail
+          for tag in \
+            "${IMAGE_NAME}:${VERSION}-${BUILD_DATE}" \
+            "${IMAGE_NAME}:${VERSION}" \
+            "${IMAGE_NAME}:latest" \
+            "${IMAGE_NAME}:sha-${GITHUB_SHA::7}"; do
+            docker tag "${IMAGE_NAME}:ci-candidate" "$tag"
+            docker push "$tag"
+          done
+          DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE_NAME}:latest")"
+          echo "Published digest: ${DIGEST}"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Read Docker Hub short description
+        if: steps.hub_auth.outputs.can_publish == 'true'
+        id: short_desc
+        shell: bash
+        run: |
+          set -euo pipefail
+          DESC="$(tr -d '\r\n' < DOCKERHUB_SHORT_DESCRIPTION)"
+          if [ "${#DESC}" -gt 100 ]; then
+            echo "ERROR: DOCKERHUB_SHORT_DESCRIPTION exceeds 100 characters (${#DESC})." >&2
+            exit 1
+          fi
+          echo "text=${DESC}" >> "$GITHUB_OUTPUT"
+
+      - name: Sync Docker Hub repository overview (short & full description)
+        if: steps.hub_auth.outputs.can_publish == 'true'
+        uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.IMAGE_NAME }}
+          short-description: ${{ steps.short_desc.outputs.text }}
+          readme-filepath: ./README.md

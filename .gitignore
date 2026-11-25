@@ -1,0 +1,11 @@
+# Local build artifacts
+*.log
+trivy-report.txt
+trivy-results.sarif
+grype-report.txt
+sbom.spdx.json
+
+# Local runtime state used by tests/smoke.sh
+etc-pihole/
+etc-dnsmasq.d/
+var-log-pihole/

@@ -1,0 +1,7 @@
+# Build context for dgcosenza/pihole
+*
+!Dockerfile
+!patches/
+!patches/*.patch
+!tests/
+!tests/*.sh

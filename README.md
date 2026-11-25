@@ -32,6 +32,7 @@ published only when the build and the scans pass.
 | `padd` | `3600b2e03999` |
 | Last verified build | `2026-11-25` |
 | Fixable CRITICAL / HIGH CVEs | `0` (Trivy + Grype gate) |
+| Published digest | `dgcosenza/pihole@sha256:76b51e041688e25810b94e7405d5d377e775be9ee9bb4ba17ebacbb796810151` |
 
 Currently tracked unfixed upstream findings (no fix released): `CVE-2019-16224`, `CVE-2019-16225`, `CVE-2019-16226`, `CVE-2019-16227`, `CVE-2019-16228`, `CVE-2025-69720`, `CVE-2026-105437`, `CVE-2026-107494`, `CVE-2026-111760`, `CVE-2026-113351`.
 

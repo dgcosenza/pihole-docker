@@ -10,7 +10,7 @@
     "padd": "3600b2e0399967219ae998561bb474d8c169e432"
   },
   "last_build_date": "2026-11-25",
-  "last_digest": "",
+  "last_digest": "dgcosenza/pihole@sha256:76b51e041688e25810b94e7405d5d377e775be9ee9bb4ba17ebacbb796810151",
   "unfixed_high_critical": [
     "CVE-2019-16224",
     "CVE-2019-16225",

@@ -13,7 +13,7 @@ packaging, while the image version tracks the upstream Pi-hole release.
 
 - Rebuilt on Debian `13.8` (`debian:trixie-slim`) with docker-pi-hole `2026.11.0`, pi-hole-core `v6.6`, pi-hole-web `v6.6.1`, pi-hole-ftl `v6.9`, padd `3600b2e03999`.
 - Verified `0` fixable CRITICAL/HIGH vulnerabilities in Trivy and Grype.
-
+- Published digest: `dgcosenza/pihole@sha256:76b51e041688e25810b94e7405d5d377e775be9ee9bb4ba17ebacbb796810151`.
 ## [2026.11.0] - 2026-11-24
 
 ### Added

@@ -14,8 +14,7 @@ packaging, while the image version tracks the upstream Pi-hole release.
 - Architectures verified: `linux/amd64, linux/arm64` (native smoke tests + Dive efficiency gate).
 - Upstream status: refreshed base OS, dependencies, and supply-chain attestations.
 - Vulnerability gate: **0 fixable Critical/High** in Trivy and Grype (SBOM scan) (37 upstream-unfixed).
-- Published multi-arch digest (Docker Hub + GHCR): `dgcosenza/pihole@sha256:4ce8c9159e80c0b9e2d9e648beecf9911618c1ddbbe4079991d56b5d4b60b120` (Cosign OIDC signed + SPDX/CycloneDX SBOM + SLSA L3 provenance).
-
+- Published multi-arch digest (Docker Hub + GHCR): `dgcosenza/pihole@sha256:dac8ce0e708c4491c8a71245b5d35eb8d10bfe8d77cdad275b837cf0b046ba2e` (Cosign OIDC signed + SPDX/CycloneDX SBOM + SLSA L3 provenance).
 ## [2026.11.0] - 2026-11-25
 
 ### Changed

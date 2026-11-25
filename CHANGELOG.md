@@ -9,6 +9,15 @@ packaging, while the image version tracks the upstream Pi-hole release.
 
 ## [2026.11.0] - 2026-11-25
 
+### Automated Daily Build
+- Verified components: docker-pi-hole `2026.11.0`, pi-hole-core `v6.6`, pi-hole-web `v6.6.1`, pi-hole-ftl `v6.9`, padd `3600b2e03999`, Base OS `Debian 13.8 (trixie-slim)`.
+- Architectures verified: `linux/amd64, linux/arm64` (native smoke tests + Dive efficiency gate).
+- Upstream status: refreshed base OS, dependencies, and supply-chain attestations.
+- Vulnerability gate: **0 fixable Critical/High** in Trivy and Grype (SBOM scan) (37 upstream-unfixed).
+- Published multi-arch digest (Docker Hub + GHCR): `dgcosenza/pihole@sha256:4ce8c9159e80c0b9e2d9e648beecf9911618c1ddbbe4079991d56b5d4b60b120` (Cosign OIDC signed + SPDX/CycloneDX SBOM + SLSA L3 provenance).
+
+## [2026.11.0] - 2026-11-25
+
 ### Changed
 
 - Rebuilt on Debian `13.8` (`debian:trixie-slim`) with docker-pi-hole `2026.11.0`, pi-hole-core `v6.6`, pi-hole-web `v6.6.1`, pi-hole-ftl `v6.9`, padd `3600b2e03999`.

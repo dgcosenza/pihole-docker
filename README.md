@@ -42,9 +42,14 @@ A hardened, multi-arch, continuously rebuilt **Debian 13 (`trixie-slim`)** conta
 | padd | `3600b2e03999` |
 | Base OS | `Debian 13.8 (trixie-slim)` |
 | Architectures | `linux/amd64, linux/arm64` |
+| Uncompressed size (per arch) | `amd64: 102.7 MB, arm64: 304.5 MB` |
 | Last verified build (UTC) | `2026-11-25` |
+| Published multi-arch digest | `dgcosenza/pihole@sha256:4ce8c9159e80c0b9e2d9e648beecf9911618c1ddbbe4079991d56b5d4b60b120` |
+| GHCR mirror | `ghcr.io/dgcosenza/pihole@sha256:4ce8c9159e80c0b9e2d9e648beecf9911618c1ddbbe4079991d56b5d4b60b120` |
 | Supply chain | Cosign OIDC signed + SPDX & CycloneDX SBOM attestations + SLSA Build L3 provenance |
-| Security gate (Trivy + Grype on SBOM) | **0 fixable Critical/High** |
+| Security gate (Trivy + Grype on SBOM) | **0 fixable Critical/High** (37 upstream-unfixed) |
+
+Currently tracked upstream-unfixed findings (no fix released): `CVE-2019-16224`, `CVE-2019-16225`, `CVE-2019-16226`, `CVE-2019-16227`, `CVE-2019-16228`, `CVE-2025-69720`, `CVE-2026-105437`, `CVE-2026-107494`, `CVE-2026-111760`, `CVE-2026-113351` (+27 more in CI artifacts).
 <!-- versions:end -->
 
 ---

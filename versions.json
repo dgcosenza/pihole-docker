@@ -1,17 +1,37 @@
 {
   "image": "dgcosenza/pihole",
+  "upstream_name": "pi-hole/docker-pi-hole",
+  "upstream_license": "EUPL-1.2",
+  "packaging_license": "MIT",
   "upstream_version": "2026.11.0",
-  "debian_version": "13.8",
+  "changelog_version": "2026.11.0",
+  "architectures": [
+    "linux/amd64",
+    "linux/arm64"
+  ],
+  "sizes_mb": {
+    "amd64": "102.7",
+    "arm64": "304.5"
+  },
+  "signed": true,
+  "slsa_provenance": true,
   "components": {
     "docker-pi-hole": "2026.11.0",
     "pi-hole-core": "v6.6",
     "pi-hole-web": "v6.6.1",
     "pi-hole-ftl": "v6.9",
-    "padd": "3600b2e0399967219ae998561bb474d8c169e432"
+    "padd": "3600b2e0399967219ae998561bb474d8c169e432",
+    "Base OS": "Debian 13.8 (trixie-slim)"
   },
-  "last_build_date": "2026-11-25",
-  "last_digest": "dgcosenza/pihole@sha256:76b51e041688e25810b94e7405d5d377e775be9ee9bb4ba17ebacbb796810151",
-  "unfixed_high_critical": [
+  "base_image": "debian:trixie-slim",
+  "base_digest": "sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0",
+  "debian_version": "13.8",
+  "build_date": "2026-11-25",
+  "built_at_utc": "2026-11-25T08:19:53Z",
+  "image_digest": "dgcosenza/pihole@sha256:4ce8c9159e80c0b9e2d9e648beecf9911618c1ddbbe4079991d56b5d4b60b120",
+  "ghcr_digest": "ghcr.io/dgcosenza/pihole@sha256:4ce8c9159e80c0b9e2d9e648beecf9911618c1ddbbe4079991d56b5d4b60b120",
+  "fixable_critical_high": 0,
+  "unfixed_cves": [
     "CVE-2019-16224",
     "CVE-2019-16225",
     "CVE-2019-16226",

@@ -166,6 +166,7 @@ ARG IMAGE_CREATED
 ARG IMAGE_REVISION
 ARG IMAGE_SOURCE
 
+# hadolint ignore=DL3067
 COPY --from=os-base / /
 COPY --from=assets /rootfs/ /
 
@@ -195,6 +196,6 @@ LABEL org.opencontainers.image.title="Pi-hole v6 (Debian 13)" \
 EXPOSE 53/tcp 53/udp 67/udp 80/tcp 443/tcp 123/udp
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD dig -p "$(pihole-FTL --config dns.port)" +short +norecurse +retry=0 @127.0.0.1 pi.hole || exit 1
+    CMD ["sh", "-c", "dig -p \"$(pihole-FTL --config dns.port)\" +short +norecurse +retry=0 @127.0.0.1 pi.hole || exit 1"]
 
 ENTRYPOINT ["start.sh"]

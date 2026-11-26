@@ -26,10 +26,10 @@ fixes automatically on the next daily build.
 
 ## Scanning and gates
 
-* Trivy: the build fails on any **fixable CRITICAL or HIGH** finding in OS
+* Trivy: the build fails on any **fixable vulnerability of any severity** in OS
   packages or bundled libraries. Results are uploaded to GitHub code scanning
   and kept as a workflow artifact.
-* Grype: run on every build, report kept as a workflow artifact.
+* Grype: blocking gate (`--only-fixed --fail-on negligible`, all severities), with reports archived as workflow artifacts.
 * SBOM: SPDX JSON generated with Syft and attached to each run.
 * The image runs FTL as the unprivileged `pihole` user; root is used only by the
   entrypoint for ownership and capability setup.

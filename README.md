@@ -26,7 +26,7 @@ A hardened, multi-arch, continuously rebuilt **Debian 13 (`trixie-slim`)** conta
 
 - **Full behavioral parity:** Same environment variables (`FTLCONF_*`, `WEBPASSWORD_FILE`, `PIHOLE_UID`/`PIHOLE_GID`), same volumes (`/etc/pihole`, `/etc/dnsmasq.d`, `/var/log/pihole`), same ports, same healthcheck, and same unprivileged `pihole` (`1000:1000`) FTL runtime account.
 - **Debian 13 (`trixie-slim`) underneath:** Uses glibc and daily `apt-get upgrade` security updates instead of Alpine/musl, with only a minimal two-hunk patch (`patches/0001-debian-gnu-userland.patch`) adapting `ADDITIONAL_PACKAGES` and `cron`.
-- **Hardened supply chain:** Hadolint + Gitleaks preflight, native multi-arch smoke tests, strict Dive efficiency gate (`>= 95%`, `<= 5%` wasted), Syft SPDX + CycloneDX SBOMs, Trivy + Grype (SBOM) zero-fixable High/Critical gates, Cosign keyless OIDC signatures & SBOM attestations, SLSA Build L3 provenance, dual-registry publishing, and signed GitHub Releases.
+- **Hardened supply chain:** Hadolint + Gitleaks preflight, native multi-arch smoke tests, strict Dive efficiency gate (`>= 95%`, `<= 5%` wasted), Syft SPDX + CycloneDX SBOMs, Trivy + Grype (SBOM) zero-fixable all-severity gates, Cosign keyless OIDC signatures & SBOM attestations, SLSA Build L3 provenance, dual-registry publishing, and signed GitHub Releases.
 
 ---
 
@@ -231,7 +231,7 @@ gh attestation verify oci://ghcr.io/dgcosenza/pihole:latest --owner dgcosenza
 
 - **Preflight gates:** Every push and PR runs **Hadolint** (blocking on warning+), **Gitleaks** secret scanning across full git history, and **public-content/attribution/license** checks.
 - **Artifact integrity:** Both `pihole-FTL-amd64` and `pihole-FTL-arm64` are verified against upstream SHA-1 digests and pinned SHA-256 checksums; `padd.sh` and `macvendor.db` are SHA-256 verified; Core and Web are cloned from signed/tagged upstream releases.
-- **Vulnerability & efficiency gates (all severities with a fix):** Each architecture generates **Syft** SPDX + CycloneDX SBOMs, passes a strict **Dive** efficiency gate (`>= 95%`, `<= 5%` wasted), and must pass **Trivy** (table, JSON, SARIF to Code Scanning, blocking `--ignore-unfixed`) and **Grype** scanning the SPDX SBOM (`--only-fixed --fail-on negligible`) with **0 fixable findings of any severity** vulnerabilities.
+- **Vulnerability & efficiency gates (all severities with a fix):** Each architecture generates **Syft** SPDX + CycloneDX SBOMs, passes a strict **Dive** efficiency gate (`>= 95%`, `<= 5%` wasted), and must pass **Trivy** (table, JSON, SARIF to Code Scanning, blocking `--ignore-unfixed`) and **Grype** scanning the SPDX SBOM (`--only-fixed --fail-on negligible`) with **0 fixable vulnerabilities of any severity**.
 - **Dependency automation:** Renovate (`renovate.json`) pins base image digests and GitHub Action commit SHAs; Dependabot security alerts and OpenSSF Scorecard monitoring are enabled.
 - See [`SECURITY.md`](https://github.com/dgcosenza/pihole-docker/blob/main/SECURITY.md) for vulnerability reporting.
 

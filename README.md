@@ -47,7 +47,7 @@ A hardened, multi-arch, continuously rebuilt **Debian 13 (`trixie-slim`)** conta
 | Published multi-arch digest | `dgcosenza/pihole@sha256:959e9043ae296a18768108bd856f4194681b0f2819d67807a0b441f352c43807` |
 | GHCR mirror | `ghcr.io/dgcosenza/pihole@sha256:959e9043ae296a18768108bd856f4194681b0f2819d67807a0b441f352c43807` |
 | Supply chain | Cosign OIDC signed + SPDX & CycloneDX SBOM attestations + SLSA Build L3 provenance |
-| Security gate (Trivy + Grype on SBOM) | **0 fixable Critical/High** (37 upstream-unfixed) |
+| Security gate (Trivy + Grype on SBOM) | **0 fixable findings of any severity** (37 upstream-unfixed) |
 
 Currently tracked upstream-unfixed findings (no fix released): `CVE-2019-16224`, `CVE-2019-16225`, `CVE-2019-16226`, `CVE-2019-16227`, `CVE-2019-16228`, `CVE-2025-69720`, `CVE-2026-105437`, `CVE-2026-107494`, `CVE-2026-111760`, `CVE-2026-113351` (+27 more in CI artifacts).
 <!-- versions:end -->
@@ -231,7 +231,7 @@ gh attestation verify oci://ghcr.io/dgcosenza/pihole:latest --owner dgcosenza
 
 - **Preflight gates:** Every push and PR runs **Hadolint** (blocking on warning+), **Gitleaks** secret scanning across full git history, and **public-content/attribution/license** checks.
 - **Artifact integrity:** Both `pihole-FTL-amd64` and `pihole-FTL-arm64` are verified against upstream SHA-1 digests and pinned SHA-256 checksums; `padd.sh` and `macvendor.db` are SHA-256 verified; Core and Web are cloned from signed/tagged upstream releases.
-- **Vulnerability & efficiency gates:** Each architecture generates **Syft** SPDX + CycloneDX SBOMs, passes a strict **Dive** efficiency gate (`>= 95%`, `<= 5%` wasted), and must pass **Trivy** (table, JSON, SARIF to Code Scanning, blocking `--ignore-unfixed`) and **Grype** scanning the SPDX SBOM (`--only-fixed --fail-on high`) with **0 fixable Critical/High** vulnerabilities.
+- **Vulnerability & efficiency gates (all severities with a fix):** Each architecture generates **Syft** SPDX + CycloneDX SBOMs, passes a strict **Dive** efficiency gate (`>= 95%`, `<= 5%` wasted), and must pass **Trivy** (table, JSON, SARIF to Code Scanning, blocking `--ignore-unfixed`) and **Grype** scanning the SPDX SBOM (`--only-fixed --fail-on negligible`) with **0 fixable findings of any severity** vulnerabilities.
 - **Dependency automation:** Renovate (`renovate.json`) pins base image digests and GitHub Action commit SHAs; Dependabot security alerts and OpenSSF Scorecard monitoring are enabled.
 - See [`SECURITY.md`](https://github.com/dgcosenza/pihole-docker/blob/main/SECURITY.md) for vulnerability reporting.
 
@@ -274,7 +274,7 @@ docker buildx build \
 
 1. **Preflight & upstream check:** Runs public-content checks, **Hadolint**, and **Gitleaks**; resolves the latest `docker-pi-hole`, Core, Web, FTL (verifying both `amd64` and `arm64` checksums), PADD, `macvendor.db`, and `debian:trixie-slim` digest via the authenticated GitHub API; diffs against `versions.json` and emits `upstream-changes.md`.
 2. **Multi-arch no-cache rebuild:** Builds natively on `linux/amd64` and `linux/arm64` runners with `--no-cache` on schedule and full `apt-get upgrade` on Debian 13.
-3. **Smoke, Dive & vulnerability gates:** Runs [`tests/smoke.sh`](https://github.com/dgcosenza/pihole-docker/blob/main/tests/smoke.sh) natively on both architectures, enforces the strict **Dive** efficiency gate (`>= 95%`, `<= 5%` wasted), generates **Syft** SPDX + CycloneDX SBOMs per arch, and gates publication on **0 fixable Critical/High** in both **Trivy** and **Grype** (SBOM scan).
+3. **Smoke, Dive & vulnerability gates:** Runs [`tests/smoke.sh`](https://github.com/dgcosenza/pihole-docker/blob/main/tests/smoke.sh) natively on both architectures, enforces the strict **Dive** efficiency gate (`>= 95%`, `<= 5%` wasted), generates **Syft** SPDX + CycloneDX SBOMs per arch, and gates publication on **0 fixable findings of any severity** in both **Trivy** and **Grype** (SBOM scan).
 4. **Dual-registry publish & signing:** Assembles the multi-arch OCI index on **GHCR** (`ghcr.io/dgcosenza/pihole`) and mirrors the identical digest to **Docker Hub** (`dgcosenza/pihole`) with tags `latest`, `<version>`, `<version>-<YYYYMMDD>`, and `sha-<short>`; keyless-signs digests and attaches SPDX/CycloneDX SBOM attestations via **Cosign** OIDC; emits **SLSA Build L3** provenance; and publishes a signed **GitHub Release** with checksums, Cosign bundle, and SBOMs.
 5. **Automated documentation sync:** Commits updated `versions.json`, the README `Current Versions` block, and a dated `CHANGELOG.md` entry via `github-actions[bot]` (`[skip ci]`), then syncs the Docker Hub repository overview and short description.
 6. **Failure alerting:** Opens or updates a single GitHub issue labeled `ci-failure` on any `main` or scheduled failure, and automatically closes it on the next green run.

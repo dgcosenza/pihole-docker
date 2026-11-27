@@ -62,8 +62,8 @@ A hardened, multi-arch, continuously rebuilt **Debian 13 (`trixie-slim`)** conta
 | Architectures | `linux/amd64, linux/arm64` |
 | Compressed size (per arch) | `amd64: 102.7 MB, arm64: 103.4 MB` |
 | Last verified build (UTC) | `2026-11-27` |
-| Published multi-arch digest | `dgcosenza/pihole@sha256:6e5b3a0677ca667b7dc04cce7122daa857d993fe451c2b55780b3218af6d4751` |
-| GHCR mirror | `ghcr.io/dgcosenza/pihole@sha256:6e5b3a0677ca667b7dc04cce7122daa857d993fe451c2b55780b3218af6d4751` |
+| Published multi-arch digest | `dgcosenza/pihole@sha256:a49f4e9efeeba49321f9d4b23135c7f4ee2e32f128f452776834e36511645510` |
+| GHCR mirror | `ghcr.io/dgcosenza/pihole@sha256:a49f4e9efeeba49321f9d4b23135c7f4ee2e32f128f452776834e36511645510` |
 | Supply chain | Cosign OIDC signed + SPDX & CycloneDX SBOM attestations + SLSA Build L3 provenance |
 | Security gate (Trivy + Grype on SBOM) | **0 fixable findings of any severity** (37 upstream-unfixed) |
 

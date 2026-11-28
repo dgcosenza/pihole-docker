@@ -7,6 +7,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this project adheres to [Semantic Versioning](https://semver.org/) for the
 packaging, while the image version tracks the upstream Pi-hole release.
 
+## [2026.11.0] - 2026-11-28
+
+### Automated Daily Build
+- Verified components: docker-pi-hole `2026.11.0`, pi-hole-core `v6.6`, pi-hole-web `v6.6.1`, pi-hole-ftl `v6.9`, padd `3600b2e03999`, Base OS `Debian 13.8 (trixie-slim)`.
+- Architectures verified: `linux/amd64, linux/arm64` (native smoke tests + Dive efficiency gate).
+- Upstream status: refreshed base OS, dependencies, and supply-chain attestations.
+- Vulnerability gate: **0 fixable findings of any severity** in Trivy and Grype (SBOM scan) (37 upstream-unfixed).
+- Published multi-arch digest (Docker Hub + GHCR): `dgcosenza/pihole@sha256:f9937ce89bb3faf11d7e6224a206ab5a9082426e1b62b3dd251b39c52a2757f8` (Cosign OIDC signed + SPDX/CycloneDX SBOM + SLSA L3 provenance).
+
 ## [2026.11.0] - 2026-11-27
 
 ### Automated Daily Build
